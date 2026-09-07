@@ -1,0 +1,11 @@
+services:
+  dev-mcp:
+    environment:
+      DEV_REPOSITORIES: '{"example":"/workspaces/example"}'
+    volumes:
+      - type: bind
+        source: /srv/mcp-repositories/example
+        target: /workspaces/example
+        read_only: true
+        bind:
+          create_host_path: false

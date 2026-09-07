@@ -1,0 +1,13 @@
+services:
+  infra-mcp:
+    environment:
+      INFRA_DOCKER_CONTAINERS: "${INFRA_DOCKER_CONTAINERS:?Set an explicit container allowlist before enabling Docker access}"
+    group_add:
+      - "${DOCKER_SOCKET_GID:?Export the host Docker socket group ID before enabling this override}"
+    volumes:
+      - type: bind
+        source: /var/run/docker.sock
+        target: /var/run/docker.sock
+        read_only: true
+        bind:
+          create_host_path: false

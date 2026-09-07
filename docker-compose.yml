@@ -1,0 +1,200 @@
+name: mcp-gateway
+
+x-container-defaults: &container-defaults
+  init: true
+  restart: unless-stopped
+  read_only: true
+  cap_drop:
+    - ALL
+  security_opt:
+    - no-new-privileges:true
+  tmpfs:
+    - /tmp:rw,noexec,nosuid,nodev,size=64m,mode=1777
+  pids_limit: 128
+  stop_grace_period: 20s
+  logging:
+    driver: json-file
+    options:
+      max-size: 10m
+      max-file: "3"
+
+x-node-service: &node-service
+  <<: *container-defaults
+  image: mcp-gateway:1.0.0
+  build:
+    context: .
+    target: runtime
+  user: "1000:1000"
+  networks:
+    - capabilities
+  healthcheck:
+    test:
+      - CMD
+      - node
+      - -e
+      - fetch('http://127.0.0.1:'+(process.env.MCP_PORT||process.env.GATEWAY_PORT||'3000')+'/health/ready',{signal:AbortSignal.timeout(3000)}).then(response=>process.exit(response.ok?0:1)).catch(()=>process.exit(1))
+    interval: 15s
+    timeout: 5s
+    start_period: 30s
+    retries: 3
+
+services:
+  nginx:
+    <<: *container-defaults
+    image: nginxinc/nginx-unprivileged:1.28-alpine
+    user: "101:101"
+    entrypoint:
+      - nginx
+    command:
+      - -g
+      - daemon off;
+    ports:
+      - target: 8080
+        published: "${GATEWAY_HTTP_PORT:-8088}"
+        host_ip: 127.0.0.1
+        protocol: tcp
+    volumes:
+      - type: bind
+        source: ./deploy/nginx/nginx.conf
+        target: /etc/nginx/nginx.conf
+        read_only: true
+        bind:
+          create_host_path: false
+      - type: bind
+        source: ./deploy/nginx/http.conf
+        target: /etc/nginx/gateway-server.conf
+        read_only: true
+        bind:
+          create_host_path: false
+      - type: bind
+        source: ./deploy/nginx/locations.conf
+        target: /etc/nginx/gateway-locations.conf
+        read_only: true
+        bind:
+          create_host_path: false
+    networks:
+      - edge
+    depends_on:
+      gateway:
+        condition: service_healthy
+    healthcheck:
+      test:
+        - CMD
+        - wget
+        - -q
+        - -O
+        - /dev/null
+        - -T
+        - "3"
+        - http://127.0.0.1:8080/health/live
+      interval: 15s
+      timeout: 5s
+      start_period: 10s
+      retries: 3
+
+  gateway:
+    <<: *node-service
+    command:
+      - node
+      - dist/main.js
+    environment:
+      GATEWAY_HOST: 0.0.0.0
+      GATEWAY_PORT: "3000"
+      GATEWAY_ALLOWED_HOSTS: "gateway,${GATEWAY_ALLOWED_HOSTS:-localhost,127.0.0.1,[::1]},${GATEWAY_PUBLIC_HOST:-localhost}"
+      GATEWAY_ALLOWED_ORIGINS: "${GATEWAY_ALLOWED_ORIGINS:-}"
+      GATEWAY_ADMIN_TOKEN_FILE: /run/secrets/gateway_admin_token
+      GATEWAY_VIEWER_TOKEN_FILE: /run/secrets/gateway_viewer_token
+      GATEWAY_DEVELOPER_TOKEN_FILE: /run/secrets/gateway_developer_token
+      GATEWAY_OPERATOR_TOKEN_FILE: /run/secrets/gateway_operator_token
+      MCP_UPSTREAM_TOKEN_FILE: /run/secrets/mcp_upstream_token
+      DEV_MCP_URL: http://dev-mcp:3001/mcp
+      INFRA_MCP_URL: http://infra-mcp:3003/mcp
+      BLOG_MCP_URL: http://blog-mcp:3002/mcp
+    secrets:
+      - gateway_admin_token
+      - gateway_viewer_token
+      - gateway_developer_token
+      - gateway_operator_token
+      - mcp_upstream_token
+    volumes:
+      - gateway_audit:/app/var/audit
+    networks:
+      - edge
+      - capabilities
+    depends_on:
+      dev-mcp:
+        condition: service_healthy
+      infra-mcp:
+        condition: service_healthy
+      blog-mcp:
+        condition: service_healthy
+
+  dev-mcp:
+    <<: *node-service
+    command:
+      - node
+      - dist/capabilities/dev/main.js
+    environment:
+      MCP_HOST: 0.0.0.0
+      MCP_PORT: "3001"
+      MCP_ALLOWED_HOSTS: dev-mcp,localhost,127.0.0.1,[::1]
+      MCP_ALLOWED_ORIGINS: ""
+      MCP_UPSTREAM_TOKEN_FILE: /run/secrets/mcp_upstream_token
+      DEV_REPOSITORIES: "{}"
+      GITHUB_ALLOWED_REPOSITORIES: "${GITHUB_ALLOWED_REPOSITORIES:-}"
+    secrets:
+      - mcp_upstream_token
+
+  infra-mcp:
+    <<: *node-service
+    command:
+      - node
+      - dist/capabilities/infra/main.js
+    environment:
+      MCP_HOST: 0.0.0.0
+      MCP_PORT: "3003"
+      MCP_ALLOWED_HOSTS: infra-mcp,localhost,127.0.0.1,[::1]
+      MCP_ALLOWED_ORIGINS: ""
+      MCP_UPSTREAM_TOKEN_FILE: /run/secrets/mcp_upstream_token
+      INFRA_DOCKER_CONTAINERS: "${INFRA_DOCKER_CONTAINERS:-}"
+      INFRA_DISK_PATH: "${INFRA_DISK_PATH:-.}"
+    secrets:
+      - mcp_upstream_token
+
+  blog-mcp:
+    <<: *node-service
+    command:
+      - node
+      - dist/capabilities/blog/main.js
+    environment:
+      MCP_HOST: 0.0.0.0
+      MCP_PORT: "3002"
+      MCP_ALLOWED_HOSTS: blog-mcp,localhost,127.0.0.1,[::1]
+      MCP_ALLOWED_ORIGINS: ""
+      MCP_UPSTREAM_TOKEN_FILE: /run/secrets/mcp_upstream_token
+      BLOG_API_URL: "${BLOG_API_URL:-}"
+      BLOG_ARTICLES_PATH: "${BLOG_ARTICLES_PATH:-/api/articles}"
+      BLOG_REQUIRE_AUTH: "${BLOG_REQUIRE_AUTH:-true}"
+    secrets:
+      - mcp_upstream_token
+
+networks:
+  edge:
+    driver: bridge
+  capabilities:
+    driver: bridge
+
+volumes:
+  gateway_audit:
+
+secrets:
+  gateway_admin_token:
+    file: ./secrets/gateway_admin_token
+  gateway_viewer_token:
+    file: ./secrets/gateway_viewer_token
+  gateway_developer_token:
+    file: ./secrets/gateway_developer_token
+  gateway_operator_token:
+    file: ./secrets/gateway_operator_token
+  mcp_upstream_token:
+    file: ./secrets/mcp_upstream_token

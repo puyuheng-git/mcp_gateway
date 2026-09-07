@@ -1,0 +1,45 @@
+{
+  "name": "mcp-gateway",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "A secure MCP v2 gateway with Dev, Infra and Blog capability servers",
+  "engines": {
+    "node": ">=24.0.0"
+  },
+  "packageManager": "pnpm@11.23.0",
+  "scripts": {
+    "dev": "tsx watch src/main.ts",
+    "build": "tsc -p tsconfig.build.json",
+    "start": "node dist/main.js",
+    "mcp:dev": "tsx src/capabilities/dev/main.ts",
+    "mcp:infra": "tsx src/capabilities/infra/main.ts",
+    "mcp:blog": "tsx src/capabilities/blog/main.ts",
+    "setup": "tsx scripts/setup.ts",
+    "smoke": "tsx scripts/smoke.ts",
+    "smoke:built": "pnpm build && node scripts/smoke-built.mjs",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "lint": "biome check .",
+    "format": "biome check --write .",
+    "check": "pnpm typecheck && pnpm lint && pnpm test && pnpm build"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/client": "2.0.0",
+    "@modelcontextprotocol/core": "2.0.0",
+    "@modelcontextprotocol/node": "2.0.0",
+    "@modelcontextprotocol/server": "2.0.0",
+    "ajv": "8.20.0",
+    "dotenv": "17.4.2",
+    "yaml": "2.9.0",
+    "zod": "4.5.4"
+  },
+  "devDependencies": {
+    "@biomejs/biome": "2.5.12",
+    "@types/node": "^24.0.0",
+    "tsx": "4.23.13",
+    "typescript": "7.0.2",
+    "vitest": "5.0.0"
+  }
+}

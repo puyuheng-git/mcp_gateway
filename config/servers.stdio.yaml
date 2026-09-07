@@ -1,0 +1,31 @@
+auth:
+  identities:
+    - id: admin
+      tokenEnv: GATEWAY_ADMIN_TOKEN
+      roles: [admin]
+    - id: viewer
+      tokenEnv: GATEWAY_VIEWER_TOKEN
+      roles: [viewer]
+
+servers:
+  - id: infra
+    name: Local Infrastructure MCP
+    transport: stdio
+    command: node
+    args: [dist/capabilities/infra/main.js, --stdio]
+    tools:
+      server.info:
+        publicName: server.info
+        capabilityLevel: L0
+        requiredScopes: [server:read]
+        idempotent: true
+      server.disk:
+        publicName: server.disk
+        capabilityLevel: L0
+        requiredScopes: [server:read]
+        idempotent: true
+      server.memory:
+        publicName: server.memory
+        capabilityLevel: L0
+        requiredScopes: [server:read]
+        idempotent: true

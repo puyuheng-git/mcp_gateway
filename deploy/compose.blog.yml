@@ -1,0 +1,11 @@
+services:
+  blog-mcp:
+    environment:
+      BLOG_API_URL: "${BLOG_API_URL:?Set BLOG_API_URL to the actual Blog HTTP API base URL}"
+      BLOG_API_TOKEN_FILE: /run/secrets/blog_api_token
+    secrets:
+      - blog_api_token
+
+secrets:
+  blog_api_token:
+    file: ./secrets/blog_api_token
