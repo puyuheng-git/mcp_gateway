@@ -15,17 +15,17 @@ servers:
     args: [dist/capabilities/infra/main.js, --stdio]
     tools:
       server.info:
-        publicName: server.info
+        publicName: server_info
         capabilityLevel: L0
         requiredScopes: [server:read]
         idempotent: true
       server.disk:
-        publicName: server.disk
+        publicName: server_disk
         capabilityLevel: L0
         requiredScopes: [server:read]
         idempotent: true
       server.memory:
-        publicName: server.memory
+        publicName: server_memory
         capabilityLevel: L0
         requiredScopes: [server:read]
         idempotent: true

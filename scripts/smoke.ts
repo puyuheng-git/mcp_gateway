@@ -17,9 +17,9 @@ async function smoke(): Promise<void> {
       }),
     );
     const { tools } = await client.listTools();
-    if (!tools.some((tool) => tool.name === "server.info"))
-      throw new Error("server.info was not discovered");
-    const result = await client.callTool({ name: "server.info", arguments: {} });
+    if (!tools.some((tool) => tool.name === "server_info"))
+      throw new Error("server_info was not discovered");
+    const result = await client.callTool({ name: "server_info", arguments: {} });
     if (result.isError) throw new Error("Read-only smoke tool failed");
     console.log(
       JSON.stringify(
@@ -28,7 +28,7 @@ async function smoke(): Promise<void> {
           protocol: "2026-07-28",
           endpoint,
           discoveredTools: tools.map((tool) => tool.name),
-          checkedTool: "server.info",
+          checkedTool: "server_info",
         },
         null,
         2,

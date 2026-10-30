@@ -39,33 +39,33 @@ servers:
     timeoutMs: 15000
     tools:
       git.status:
-        publicName: git.status
+        publicName: git_status
         capabilityLevel: L0
         requiredScopes: [git:read]
         idempotent: true
       git.log:
-        publicName: git.log
+        publicName: git_log
         capabilityLevel: L0
         requiredScopes: [git:read]
         idempotent: true
       git.pull:
-        publicName: git.pull
+        publicName: git_pull
         capabilityLevel: L1
         requiredScopes: [git:write]
         timeoutMs: 30000
         sideEffects: [git_worktree_update]
       github.issue.list:
-        publicName: github.issue.list
+        publicName: github_issue_list
         capabilityLevel: L0
         requiredScopes: [github:read]
         idempotent: true
       github.pr.list:
-        publicName: github.pr.list
+        publicName: github_pr_list
         capabilityLevel: L0
         requiredScopes: [github:read]
         idempotent: true
       github.pr.create:
-        publicName: github.pr.create
+        publicName: github_pr_create
         capabilityLevel: L1
         requiredScopes: [github:write]
         sideEffects: [pull_request_created]
@@ -78,32 +78,32 @@ servers:
     timeoutMs: 15000
     tools:
       server.info:
-        publicName: server.info
+        publicName: server_info
         capabilityLevel: L0
         requiredScopes: [server:read]
         idempotent: true
       server.disk:
-        publicName: server.disk
+        publicName: server_disk
         capabilityLevel: L0
         requiredScopes: [server:read]
         idempotent: true
       server.memory:
-        publicName: server.memory
+        publicName: server_memory
         capabilityLevel: L0
         requiredScopes: [server:read]
         idempotent: true
       docker.ps:
-        publicName: docker.ps
+        publicName: docker_ps
         capabilityLevel: L0
         requiredScopes: [docker:read]
         idempotent: true
       docker.logs:
-        publicName: docker.logs
+        publicName: docker_logs
         capabilityLevel: L0
         requiredScopes: [docker:read]
         idempotent: true
       docker.restart:
-        publicName: docker.restart
+        publicName: docker_restart
         capabilityLevel: L2
         requiredScopes: [docker:write]
         timeoutMs: 30000
@@ -117,27 +117,27 @@ servers:
     timeoutMs: 15000
     tools:
       blog.search:
-        publicName: blog.search
+        publicName: blog_search
         capabilityLevel: L0
         requiredScopes: [blog:read]
         idempotent: true
       blog.get:
-        publicName: blog.get
+        publicName: blog_get
         capabilityLevel: L0
         requiredScopes: [blog:read]
         idempotent: true
       blog.create:
-        publicName: blog.create
+        publicName: blog_create
         capabilityLevel: L1
         requiredScopes: [blog:write]
         sideEffects: [article_created]
       blog.update:
-        publicName: blog.update
+        publicName: blog_update
         capabilityLevel: L1
         requiredScopes: [blog:write]
         sideEffects: [article_updated]
       blog.publish:
-        publicName: blog.publish
+        publicName: blog_publish
         capabilityLevel: L2
         requiredScopes: [blog:write]
         sideEffects: [article_published]
