@@ -1,0 +1,18 @@
+[Unit]
+Description=MCP Blog capability server
+After=network.target
+
+[Service]
+Type=simple
+WorkingDirectory=/www/wwwroot/mcp_gateway
+Environment=MCP_HOST=127.0.0.1
+Environment=MCP_PORT=3002
+Environment=NODE_OPTIONS=--max-old-space-size=160
+ExecStart=/www/wwwroot/mcp_gateway/deploy/host-lowmem/run.sh dist/capabilities/blog/main.js
+Restart=on-failure
+RestartSec=3
+MemoryMax=220M
+TasksMax=64
+
+[Install]
+WantedBy=multi-user.target

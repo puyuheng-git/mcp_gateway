@@ -14,46 +14,35 @@ export interface BlogOptions {
 
 const maximumResponseBytes = 1_048_576;
 const restContract = [
-  "Configurable REST adapter for an existing Go HTTP API; the real Go API contract is not verified.",
+  "Thin REST adapter for the blog MCP HTTP API (/api/v1/mcp/articles).",
   "baseUrl must be an absolute HTTP(S) URL without credentials, query or fragment.",
-  "articlesPath defaults to /api/articles and must start with a single slash and name a collection.",
-  "Routes append articlesPath to baseUrl's existing pathname, removing trailing slashes from both; a leading slash never resets the base path.",
-  "Path segments allow ASCII letters, digits, dot, underscore, tilde and hyphen; dot-only traversal segments, percent escapes, backslashes and repeated slashes are rejected.",
-  "requireAuth defaults to true; only the independently configured API token is sent as Bearer, never a gateway token.",
-  "Missing or invalid configuration fails at execution, not discovery. No mock success or database access is provided.",
-  "Responses must be UTF-8 application/json or application/*+json, at most 1 MiB after decompression, and are returned unchanged; HTTP 204 returns null.",
-  "timeoutMs defaults to 10000 and must be an integer from 1 through 120000; it covers headers and body and honors caller cancellation.",
-  "Redirects and automatic retries are disabled for every call.",
+  "articlesPath defaults to /api/v1/mcp/articles.",
+  "Routes append articlesPath to baseUrl's existing pathname.",
+  "requireAuth defaults to true; only BLOG_API_TOKEN (MCP service token) is sent as Bearer.",
+  "HTTP 200 responses with envelope code != 0 are treated as tool failures.",
+  "Redirects and automatic retries are disabled.",
 ].join(" ");
 
 const identifierPattern = /^[A-Za-z0-9_-]+(?![\s\S])/;
-const articleId = z
+const articleRef = z
   .string()
   .min(1)
   .max(128)
   .regex(identifierPattern)
-  .describe("Article identifier: 1-128 ASCII letters, digits, underscores or hyphens.");
-const articleFields = {
-  title: z.string().trim().min(1).max(200).describe("Article title, trimmed, 1-200 characters."),
-  content: z
-    .string()
-    .min(1)
-    .max(1_000_000)
-    .refine((value) => value.trim().length > 0, "Content must not be blank")
-    .describe("Article content, 1-1000000 characters; original whitespace is preserved."),
-  slug: z
-    .string()
-    .min(1)
-    .max(200)
-    .regex(identifierPattern)
-    .optional()
-    .describe("Optional slug: 1-200 ASCII letters, digits, underscores or hyphens."),
-  tags: z
-    .array(z.string().trim().min(1).max(64))
-    .max(20)
-    .optional()
-    .describe("Optional list of up to 20 tags, each trimmed and 1-64 characters; [] clears tags."),
-};
+  .describe("Article id (digits) or slug: 1-128 ASCII letters, digits, underscores or hyphens.");
+
+const categoryId = z.number().int().positive().describe("Blog category id.");
+const categorySlug = z
+  .string()
+  .min(1)
+  .max(200)
+  .regex(identifierPattern)
+  .describe("Blog category slug.");
+const tagIds = z.array(z.number().int().positive()).max(20).describe("Blog tag ids.");
+const tagSlugs = z
+  .array(z.string().min(1).max(200).regex(identifierPattern))
+  .max(20)
+  .describe("Blog tag slugs.");
 
 interface ApiRequest {
   method: "GET" | "POST" | "PATCH";
@@ -75,7 +64,7 @@ function isSafePathname(pathname: string): boolean {
 function resolveOptions(options: BlogOptions) {
   try {
     const { baseUrl, token } = options;
-    const articlesPath = options.articlesPath ?? "/api/articles";
+    const articlesPath = options.articlesPath ?? "/api/v1/mcp/articles";
     const timeoutMs = options.timeoutMs ?? 10_000;
     if (!baseUrl || /[\s\\]/.test(baseUrl)) throw new Error();
     const parts = /^(https?):\/\/([^/?#]+)(\/[^?#]*)?$/i.exec(baseUrl);
@@ -104,6 +93,16 @@ function unavailable(): GatewayError {
 
 function cancelled(): GatewayError {
   return new GatewayError("TIMEOUT", "Blog API request timed out or was cancelled", 504);
+}
+
+function assertBusinessOk(data: unknown): unknown {
+  if (data === null || typeof data !== "object" || Array.isArray(data)) return data;
+  if (!Object.hasOwn(data, "code")) return data;
+  const code = (data as { code: unknown }).code;
+  if (typeof code === "number" && code !== 0) {
+    throw new GatewayError("TOOL_EXECUTION_FAILED", "Blog API reported a business failure", 502);
+  }
+  return data;
 }
 
 async function readJsonResponse(response: Response): Promise<unknown> {
@@ -173,10 +172,11 @@ async function requestApi(
       throw new GatewayError("TOOL_EXECUTION_FAILED", "Blog API request failed", 502);
     }
     try {
-      const data = await readJsonResponse(response);
+      const data = assertBusinessOk(await readJsonResponse(response));
       if (requestSignal.aborted) throw cancelled();
       return data;
-    } catch {
+    } catch (error) {
+      if (error instanceof GatewayError) throw error;
       if (requestSignal.aborted) throw cancelled();
       throw new GatewayError("TOOL_EXECUTION_FAILED", "Blog API returned an invalid response", 502);
     }
@@ -186,12 +186,18 @@ async function requestApi(
   }
 }
 
+function compactBody(body: Record<string, unknown>): Record<string, unknown> {
+  return Object.fromEntries(
+    Object.entries(body).filter(([, value]) => value !== undefined),
+  );
+}
+
 export function createBlogTools(options: BlogOptions): CapabilityTool[] {
   const config = { ...options };
   return [
     defineTool({
       name: "blog.search",
-      description: `Search articles with GET articlesPath?q=...&page=...&pageSize=.... ${restContract}`,
+      description: `Search articles with GET articlesPath?keyword=...&page=...&pageSize=.... ${restContract}`,
       inputSchema: z
         .object({
           q: z
@@ -199,7 +205,7 @@ export function createBlogTools(options: BlogOptions): CapabilityTool[] {
             .trim()
             .max(500)
             .default("")
-            .describe("Search query, up to 500 characters; empty lists articles."),
+            .describe("Search query mapped to upstream keyword; empty lists articles."),
           page: z.number().int().min(1).max(1_000_000).default(1),
           pageSize: z.number().int().min(1).max(100).default(20),
         })
@@ -211,61 +217,108 @@ export function createBlogTools(options: BlogOptions): CapabilityTool[] {
           config,
           {
             method: "GET",
-            query: { q, page: String(page), pageSize: String(pageSize) },
+            query: { keyword: q, q, page: String(page), pageSize: String(pageSize) },
           },
           signal,
         ),
     }),
     defineTool({
       name: "blog.get",
-      description: `Get an article with GET articlesPath/:id. ${restContract}`,
-      inputSchema: z.object({ id: articleId }).strict(),
+      description: `Get an article with GET articlesPath/:idOrSlug. ${restContract}`,
+      inputSchema: z.object({ id: articleRef }).strict(),
       capabilityLevel: "L0",
       requiredScopes: ["blog:read"],
       execute: ({ id }, signal) => requestApi(config, { method: "GET", suffix: `/${id}` }, signal),
     }),
     defineTool({
       name: "blog.create",
-      description: `Create an article with POST articlesPath and a JSON body {title, content, slug?, tags?}. ${restContract}`,
-      inputSchema: z.object(articleFields).strict(),
-      capabilityLevel: "L1",
-      requiredScopes: ["blog:write"],
-      idempotent: false,
-      sideEffects: ["Creates an article via the Blog API"],
-      execute: (body, signal) => requestApi(config, { method: "POST", body }, signal),
-    }),
-    defineTool({
-      name: "blog.update",
-      description: `Update an article with PATCH articlesPath/:id and a JSON body containing only supplied title/content/slug/tags fields, never id. At least one field is required. ${restContract}`,
+      description: `Create an article with POST articlesPath. Provide categoryId or categorySlug. ${restContract}`,
       inputSchema: z
         .object({
-          id: articleId,
-          title: articleFields.title.optional(),
-          content: articleFields.content.optional(),
-          slug: articleFields.slug,
-          tags: articleFields.tags,
+          title: z.string().trim().min(1).max(200),
+          content: z
+            .string()
+            .min(1)
+            .max(1_000_000)
+            .refine((value) => value.trim().length > 0, "Content must not be blank"),
+          slug: z.string().min(1).max(200).regex(identifierPattern).optional(),
+          summary: z.string().max(500).optional(),
+          cover: z.string().max(255).optional(),
+          categoryId: categoryId.optional(),
+          categorySlug: categorySlug.optional(),
+          tagIds: tagIds.optional(),
+          tagSlugs: tagSlugs.optional(),
+          status: z.number().int().min(0).max(1).optional(),
         })
         .strict()
         .refine(
-          ({ title, content, slug, tags }) =>
-            [title, content, slug, tags].some((value) => value !== undefined),
+          (body) => body.categoryId !== undefined || body.categorySlug !== undefined,
+          "categoryId or categorySlug is required",
+        ),
+      capabilityLevel: "L1",
+      requiredScopes: ["blog:write"],
+      idempotent: false,
+      sideEffects: ["Creates an article via the Blog MCP API"],
+      execute: (body, signal) =>
+        requestApi(config, { method: "POST", body: compactBody(body) }, signal),
+    }),
+    defineTool({
+      name: "blog.update",
+      description: `Patch an article with PATCH articlesPath/:id. Partial fields are merged server-side. ${restContract}`,
+      inputSchema: z
+        .object({
+          id: z
+            .string()
+            .regex(/^[0-9]+$/)
+            .describe("Numeric article id."),
+          title: z.string().trim().min(1).max(200).optional(),
+          content: z
+            .string()
+            .min(1)
+            .max(1_000_000)
+            .refine((value) => value.trim().length > 0, "Content must not be blank")
+            .optional(),
+          slug: z.string().min(1).max(200).regex(identifierPattern).optional(),
+          summary: z.string().max(500).optional(),
+          cover: z.string().max(255).optional(),
+          categoryId: categoryId.optional(),
+          categorySlug: categorySlug.optional(),
+          tagIds: tagIds.optional(),
+          tagSlugs: tagSlugs.optional(),
+          clearTags: z.boolean().optional(),
+          status: z.number().int().min(0).max(1).optional(),
+        })
+        .strict()
+        .refine(
+          ({ id: _id, ...fields }) => Object.values(fields).some((value) => value !== undefined),
           "At least one article field must be provided",
         ),
       capabilityLevel: "L1",
       requiredScopes: ["blog:write"],
       idempotent: false,
-      sideEffects: ["Updates an article via the Blog API"],
+      sideEffects: ["Updates an article via the Blog MCP API"],
       execute: ({ id, ...body }, signal) =>
-        requestApi(config, { method: "PATCH", suffix: `/${id}`, body }, signal),
+        requestApi(
+          config,
+          { method: "PATCH", suffix: `/${id}`, body: compactBody(body) },
+          signal,
+        ),
     }),
     defineTool({
       name: "blog.publish",
-      description: `Publish an article with POST articlesPath/:id/publish and no request body. ${restContract}`,
-      inputSchema: z.object({ id: articleId }).strict(),
+      description: `Publish an article with POST articlesPath/:id/publish. ${restContract}`,
+      inputSchema: z
+        .object({
+          id: z
+            .string()
+            .regex(/^[0-9]+$/)
+            .describe("Numeric article id."),
+        })
+        .strict(),
       capabilityLevel: "L2",
       requiredScopes: ["blog:write"],
       idempotent: false,
-      sideEffects: ["Publishes an article via the Blog API"],
+      sideEffects: ["Publishes an article via the Blog MCP API"],
       execute: ({ id }, signal) =>
         requestApi(config, { method: "POST", suffix: `/${id}/publish` }, signal),
     }),

@@ -1,0 +1,17 @@
+[Unit]
+Description=MCP Gateway (low-memory host mode)
+After=network.target mcp-dev.service mcp-blog.service mcp-infra.service
+Wants=mcp-dev.service mcp-blog.service mcp-infra.service
+
+[Service]
+Type=simple
+WorkingDirectory=/www/wwwroot/mcp_gateway
+Environment=NODE_OPTIONS=--max-old-space-size=192
+ExecStart=/www/wwwroot/mcp_gateway/deploy/host-lowmem/run.sh dist/main.js
+Restart=on-failure
+RestartSec=3
+MemoryMax=256M
+TasksMax=64
+
+[Install]
+WantedBy=multi-user.target
