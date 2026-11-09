@@ -5,6 +5,7 @@ import { join } from "node:path";
 import { setTimeout as delay } from "node:timers/promises";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { z } from "zod";
+import { gatewayCallActor } from "../src/capabilities/call-context.js";
 import { defineTool } from "../src/capabilities/types.js";
 import { type GatewayConfig, parseConfig } from "../src/config/config.js";
 import { createGateway } from "../src/server/gateway.js";
@@ -24,7 +25,7 @@ function fixtureTools(onWrite: () => void = () => undefined) {
       inputSchema: z.object({ text: z.string() }).strict(),
       capabilityLevel: "L0",
       requiredScopes: ["git:read"],
-      execute: async ({ text }) => ({ text }),
+      execute: async ({ text }) => ({ text, actor: gatewayCallActor.getStore() ?? null }),
     }),
     defineTool({
       name: "write",
@@ -180,7 +181,30 @@ describe("real MCP gateway integration", () => {
       arguments: { text: "through-gateway" },
     });
     expect(result.isError).not.toBe(true);
-    expect(result.structuredContent).toEqual({ result: { text: "through-gateway" } });
+    expect(result.structuredContent).toEqual({
+      result: { text: "through-gateway", actor: { id: "viewer", moderate: false } },
+    });
+  });
+
+  it("stamps the authenticated actor and ignores a forged actor", async () => {
+    const { url } = await setup();
+    const viewer = await client(url, "viewer");
+    const admin = await client(url, "admin");
+    const forged = await viewer.callTool({
+      name: "demo.echo",
+      arguments: { text: "mine" },
+      _meta: { "gateway/actor": "admin", "gateway/moderate": true },
+    });
+    expect(forged.structuredContent).toEqual({
+      result: { text: "mine", actor: { id: "viewer", moderate: false } },
+    });
+    const privileged = await admin.callTool({
+      name: "demo.echo",
+      arguments: { text: "all" },
+    });
+    expect(privileged.structuredContent).toEqual({
+      result: { text: "all", actor: { id: "admin", moderate: true } },
+    });
   });
 
   it("blocks unauthorized and malformed calls before upstream side effects", async () => {
@@ -424,7 +448,9 @@ describe("real MCP gateway integration", () => {
     expect(gateway.health.snapshot().ready).toBe(true);
     expect((await viewer.listTools()).tools.map((tool) => tool.name)).toEqual(["demo.echo"]);
     const result = await viewer.callTool({ name: "demo.echo", arguments: { text: "recovered" } });
-    expect(result.structuredContent).toEqual({ result: { text: "recovered" } });
+    expect(result.structuredContent).toEqual({
+      result: { text: "recovered", actor: { id: "viewer", moderate: false } },
+    });
   });
 
   it("times out mutations without retrying them", async () => {

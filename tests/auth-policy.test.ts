@@ -5,7 +5,7 @@ import { describe, expect, it } from "vitest";
 import { JsonlAuditLog } from "../src/audit/audit-log.js";
 import { Authenticator } from "../src/auth/authentication.js";
 import { authorize } from "../src/auth/authorization.js";
-import type { Role } from "../src/auth/identity.js";
+import { hasScopes, type Role } from "../src/auth/identity.js";
 import { parseConfig, toolPolicySchema } from "../src/config/config.js";
 import { PolicyEngine } from "../src/policy/policy-engine.js";
 
@@ -14,8 +14,9 @@ const environment = {
   VIEWER: "viewer-".repeat(8),
   DEVELOPER: "developer-".repeat(8),
   OPERATOR: "operator-".repeat(8),
+  BLOGGER: "blogger-".repeat(8),
 };
-const roles: Role[] = ["admin", "viewer", "developer", "operator"];
+const roles: Role[] = ["admin", "viewer", "developer", "operator", "blogger"];
 const configuration = parseConfig(
   {
     auth: {
@@ -84,6 +85,27 @@ describe("RBAC and minimum v1 policy", () => {
     expect(() =>
       new PolicyEngine({ allowProduction: true }).check(actor("operator"), production),
     ).toThrow();
+  });
+
+  it("gives a blogger blog read and write without other domains or moderation", () => {
+    const blogger = actor("blogger");
+    expect(blogger.maxCapabilityLevel).toBe(2);
+    expect([...blogger.scopes].sort()).toEqual(["blog:read", "blog:write"]);
+    expect(() =>
+      authorize(
+        blogger,
+        toolPolicySchema.parse({ capabilityLevel: "L2", requiredScopes: ["blog:write"] }),
+      ),
+    ).not.toThrow();
+    expect(() =>
+      authorize(
+        blogger,
+        toolPolicySchema.parse({ capabilityLevel: "L0", requiredScopes: ["git:read"] }),
+      ),
+    ).toThrow();
+    expect(hasScopes(blogger, ["blog:moderate"])).toBe(false);
+    expect(hasScopes(actor("admin"), ["blog:moderate"])).toBe(true);
+    expect(hasScopes(actor("operator"), ["blog:moderate"])).toBe(false);
   });
 
   it("uses the same decision for discovery and execution", () => {

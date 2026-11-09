@@ -1,6 +1,7 @@
 import { Buffer } from "node:buffer";
 import { z } from "zod";
 import { GatewayError } from "../../errors.js";
+import { gatewayCallActor } from "../call-context.js";
 import { type CapabilityTool, defineTool } from "../types.js";
 
 export interface BlogOptions {
@@ -49,6 +50,7 @@ interface ApiRequest {
   suffix?: string;
   query?: Record<string, string>;
   body?: Record<string, unknown>;
+  write?: boolean;
 }
 
 function isSafePathname(pathname: string): boolean {
@@ -100,6 +102,16 @@ function assertBusinessOk(data: unknown): unknown {
   if (!Object.hasOwn(data, "code")) return data;
   const code = (data as { code: unknown }).code;
   if (typeof code === "number" && code !== 0) {
+    if (code === 40100) {
+      throw new GatewayError("AUTHENTICATION_FAILED", "Blog actor is missing", 401);
+    }
+    if (code === 40300) {
+      throw new GatewayError(
+        "AUTHORIZATION_DENIED",
+        "You are not permitted to modify this article",
+        403,
+      );
+    }
     throw new GatewayError("TOOL_EXECUTION_FAILED", "Blog API reported a business failure", 502);
   }
   return data;
@@ -141,6 +153,10 @@ async function requestApi(
   signal: AbortSignal,
 ): Promise<unknown> {
   const config = resolveOptions(options);
+  const actor = gatewayCallActor.getStore();
+  if (request.write && !actor) {
+    throw new GatewayError("AUTHORIZATION_DENIED", "Blog writes require a gateway actor", 403);
+  }
   config.url.pathname += request.suffix ?? "";
   if (request.query) config.url.search = new URLSearchParams(request.query).toString();
   const timeoutController = new AbortController();
@@ -156,6 +172,12 @@ async function requestApi(
         headers: {
           accept: "application/json",
           ...(config.token ? { authorization: `Bearer ${config.token}` } : {}),
+          ...(actor
+            ? {
+                "x-gateway-actor": actor.id,
+                "x-gateway-moderate": actor.moderate ? "true" : "false",
+              }
+            : {}),
           ...(request.body === undefined ? {} : { "content-type": "application/json" }),
         },
         ...(request.body === undefined ? {} : { body: JSON.stringify(request.body) }),
@@ -187,9 +209,7 @@ async function requestApi(
 }
 
 function compactBody(body: Record<string, unknown>): Record<string, unknown> {
-  return Object.fromEntries(
-    Object.entries(body).filter(([, value]) => value !== undefined),
-  );
+  return Object.fromEntries(Object.entries(body).filter(([, value]) => value !== undefined));
 }
 
 export function createBlogTools(options: BlogOptions): CapabilityTool[] {
@@ -260,7 +280,7 @@ export function createBlogTools(options: BlogOptions): CapabilityTool[] {
       idempotent: false,
       sideEffects: ["Creates an article via the Blog MCP API"],
       execute: (body, signal) =>
-        requestApi(config, { method: "POST", body: compactBody(body) }, signal),
+        requestApi(config, { method: "POST", body: compactBody(body), write: true }, signal),
     }),
     defineTool({
       name: "blog.update",
@@ -300,7 +320,7 @@ export function createBlogTools(options: BlogOptions): CapabilityTool[] {
       execute: ({ id, ...body }, signal) =>
         requestApi(
           config,
-          { method: "PATCH", suffix: `/${id}`, body: compactBody(body) },
+          { method: "PATCH", suffix: `/${id}`, body: compactBody(body), write: true },
           signal,
         ),
     }),
@@ -320,7 +340,7 @@ export function createBlogTools(options: BlogOptions): CapabilityTool[] {
       idempotent: false,
       sideEffects: ["Publishes an article via the Blog MCP API"],
       execute: ({ id }, signal) =>
-        requestApi(config, { method: "POST", suffix: `/${id}/publish` }, signal),
+        requestApi(config, { method: "POST", suffix: `/${id}/publish`, write: true }, signal),
     }),
   ];
 }

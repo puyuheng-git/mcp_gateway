@@ -20,6 +20,7 @@ import {
   sendJson,
   validateMcpRequest,
 } from "../server/http.js";
+import { gatewayCallActor, readGatewayActor } from "./call-context.js";
 import type { CapabilityTool } from "./types.js";
 
 export function createCapabilityMcpServer(name: string, tools: CapabilityTool[]): Server {
@@ -61,7 +62,9 @@ export function createCapabilityMcpServer(name: string, tools: CapabilityTool[])
     try {
       const tool = byName.get(request.params.name);
       if (!tool) throw new GatewayError("TOOL_NOT_FOUND", "Unknown capability tool", 404);
-      const value = await tool.execute(request.params.arguments ?? {}, context.mcpReq.signal);
+      const actor = readGatewayActor(context.mcpReq._meta);
+      const execute = () => tool.execute(request.params.arguments ?? {}, context.mcpReq.signal);
+      const value = actor ? await gatewayCallActor.run(actor, execute) : await execute();
       const text = JSON.stringify({ result: value ?? null });
       if (Buffer.byteLength(text) > 4_194_304)
         throw new GatewayError("TOOL_EXECUTION_FAILED", "Tool output exceeds the size limit", 502);

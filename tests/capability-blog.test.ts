@@ -7,6 +7,7 @@ import {
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { ZodError } from "zod";
 import { type BlogOptions, createBlogTools } from "../src/capabilities/blog/tools.js";
+import { gatewayCallActor } from "../src/capabilities/call-context.js";
 import type { CapabilityTool } from "../src/capabilities/types.js";
 import { type ErrorCode, GatewayError } from "../src/errors.js";
 
@@ -136,7 +137,9 @@ function tool(name: string, options: BlogOptions = {}): CapabilityTool {
 }
 
 function execute(name: string, args: unknown, options: BlogOptions = {}): Promise<unknown> {
-  return tool(name, options).execute(args, new AbortController().signal);
+  return gatewayCallActor.run({ id: "author", moderate: false }, () =>
+    tool(name, options).execute(args, new AbortController().signal),
+  );
 }
 
 async function expectFailure(result: Promise<unknown>, code: ErrorCode, status: number) {
@@ -217,6 +220,8 @@ describe("Blog MCP HTTP adapter", () => {
       expect(url.pathname).toBe(`/go-service/v2/articles${suffix}`);
       expect(received.method).toBe(method);
       expect(received.headers.authorization).toBe(`Bearer ${apiToken}`);
+      expect(received.headers["x-gateway-actor"]).toBe("author");
+      expect(received.headers["x-gateway-moderate"]).toBe("false");
       if (body) {
         expect(JSON.parse(received.body)).toEqual(body);
       } else {
@@ -270,16 +275,38 @@ describe("Blog MCP HTTP adapter", () => {
     },
   );
 
+  it("rejects blog writes that have no gateway actor before calling the API", async () => {
+    await expectFailure(
+      tool("blog.update").execute({ id: articleId, title: "Nope" }, new AbortController().signal),
+      "AUTHORIZATION_DENIED",
+      403,
+    );
+    await expectFailure(
+      tool("blog.publish").execute({ id: articleId }, new AbortController().signal),
+      "AUTHORIZATION_DENIED",
+      403,
+    );
+    expect(requests).toHaveLength(0);
+  });
+
+  it("turns an ownership denial into authorization denied without leaking details", async () => {
+    respond = (response) => {
+      response.writeHead(200, { "content-type": "application/json" });
+      response.end(JSON.stringify({ code: 40300, message: privateDetails, data: {} }));
+    };
+    await expectFailure(
+      execute("blog.update", { id: articleId, title: "Updated" }),
+      "AUTHORIZATION_DENIED",
+      403,
+    );
+  });
+
   it("treats envelope code != 0 as a tool failure without leaking details", async () => {
     respond = (response) => {
       response.writeHead(200, { "content-type": "application/json" });
       response.end(JSON.stringify({ code: 40400, message: privateDetails, data: {} }));
     };
-    await expectFailure(
-      execute("blog.get", { id: articleSlug }),
-      "TOOL_EXECUTION_FAILED",
-      502,
-    );
+    await expectFailure(execute("blog.get", { id: articleSlug }), "TOOL_EXECUTION_FAILED", 502);
   });
 
   it.each([undefined, apiToken])(
@@ -344,10 +371,6 @@ describe("Blog MCP HTTP adapter", () => {
     respond = () => {
       controller.abort();
     };
-    await expectFailure(
-      tool("blog.search").execute({}, controller.signal),
-      "TIMEOUT",
-      504,
-    );
+    await expectFailure(tool("blog.search").execute({}, controller.signal), "TIMEOUT", 504);
   });
 });

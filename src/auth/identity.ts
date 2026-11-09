@@ -1,4 +1,4 @@
-export const roleNames = ["viewer", "developer", "operator", "admin"] as const;
+export const roleNames = ["viewer", "developer", "operator", "blogger", "admin"] as const;
 export type Role = (typeof roleNames)[number];
 export type CapabilityLevel = "L0" | "L1" | "L2" | "L3";
 
@@ -13,10 +13,13 @@ export interface Identity {
 const readScopes = ["server:read", "docker:read", "git:read", "github:read", "blog:read"];
 const developmentScopes = [...readScopes, "git:write", "github:write", "blog:write"];
 
+const bloggerScopes = ["blog:read", "blog:write"];
+
 export const roleScopes: Record<Role, readonly string[]> = {
   viewer: readScopes,
   developer: developmentScopes,
   operator: [...developmentScopes, "docker:write"],
+  blogger: bloggerScopes,
   admin: ["*"],
 };
 
@@ -24,6 +27,7 @@ export const roleLevels: Record<Role, number> = {
   viewer: 0,
   developer: 1,
   operator: 2,
+  blogger: 2,
   admin: 3,
 };
 

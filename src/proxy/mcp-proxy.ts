@@ -1,4 +1,9 @@
 import type { CallToolResult } from "@modelcontextprotocol/client";
+import {
+  type GatewayActor,
+  gatewayActorMetaKey,
+  gatewayModerateMetaKey,
+} from "../capabilities/call-context.js";
 import { GatewayError } from "../errors.js";
 import type { ServerRegistry } from "../registry/server-registry.js";
 import type { RegisteredTool } from "../registry/tool-registry.js";
@@ -13,13 +18,21 @@ export class McpProxy {
     tool: RegisteredTool,
     args: Record<string, unknown>,
     cancelled: AbortSignal,
+    actor: GatewayActor,
   ): Promise<CallToolResult> {
     const client = this.servers.client(tool.serverId);
     const signal = AbortSignal.any([cancelled, this.shutdown, AbortSignal.timeout(tool.timeoutMs)]);
     try {
       signal.throwIfAborted();
       const result = await client.callTool(
-        { name: tool.upstreamName, arguments: args },
+        {
+          name: tool.upstreamName,
+          arguments: args,
+          _meta: {
+            [gatewayActorMetaKey]: actor.id,
+            [gatewayModerateMetaKey]: actor.moderate,
+          },
+        },
         {
           toolDefinition: { ...tool.definition, name: tool.upstreamName },
           signal,

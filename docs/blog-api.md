@@ -11,7 +11,14 @@ Blog MCP 是博客 Go 服务 `/api/v1/mcp` 的薄适配器。业务校验、分�
 | `BLOG_API_TOKEN` / `BLOG_API_TOKEN_FILE` | 博客配置的 MCP 服务 Token（`BLOG_MCP_TOKEN`），不是管理员 JWT |
 | `BLOG_REQUIRE_AUTH` | 默认 `true` |
 
-请求只发送 MCP 服务 Bearer Token，不使用 Gateway Token。
+请求发送 MCP 服务 Bearer Token，不使用 Gateway 用户 Token。Gateway 另外附带调用者：
+
+| Header | 值 |
+|---|---|
+| `X-Gateway-Actor` | Gateway 身份 id，`^[A-Za-z0-9_-]{1,64}$` |
+| `X-Gateway-Moderate` | 仅 `true` 表示具备 `blog:moderate` |
+
+创建时作者只取 `X-Gateway-Actor`，请求体里的作者字段无效。缺少调用者时写入返回业务码 `40100`。非作者且非 moderate 的更新或发布返回 `40300`。读取时，已发布文章对所有调用者可见；草稿只对作者和 moderate 可见，其他人得到 `40400`。没有作者的旧文章可以读（若已发布），只有 moderate 能改。
 
 ## 路由映射
 
@@ -53,7 +60,7 @@ Blog MCP 是博客 Go 服务 `/api/v1/mcp` 的薄适配器。业务校验、分�
 
 ## 响应
 
-业务信封 `{ "code", "message", "data" }`。HTTP 200 且 `code != 0` 时，适配器返回 `TOOL_EXECUTION_FAILED`（不回传上游 message 细节）。
+业务信封 `{ "code", "message", "data" }`。HTTP 200 且 `code != 0` 时，适配器不回传上游 message。`40100` 映射为 `AUTHENTICATION_FAILED`，`40300` 映射为 `AUTHORIZATION_DENIED`，其余映射为 `TOOL_EXECUTION_FAILED`。
 
 ## 接入清单
 

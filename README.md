@@ -89,8 +89,11 @@ pnpm smoke
 |---|---|---|
 | viewer | L0 | 所有已定义领域的只读 Scope |
 | developer | L1 | viewer + Git、GitHub、Blog 写入 |
-| operator | L2 | developer + Docker 写入，可发布博客 |
-| admin | L3 | 全部 Scope；仍受生产策略限制 |
+| operator | L2 | developer + Docker 写入，可发布自己的博客 |
+| blogger | L2 | 仅 `blog:read` 与 `blog:write`，可发布自己的博客 |
+| admin | L3 | 全部 Scope，含 `blog:moderate`；仍受生产策略限制 |
+
+`blog:write` 只能修改调用者自己创建的文章。`blog:moderate` 可以修改他人文章和尚未记录作者的旧文章，当前只有 admin 具备。已发布文章对 `blog:read` 可见；草稿只对作者和 `blog:moderate` 可见。每个写作者使用独立身份，例如 `roles: [blogger]`，`id` 会记成文章作者。
 
 `policy.allowProduction` 默认 `false`，admin 也不能执行 L3。v1 不提供生产部署工具或审批流程，不应仅为绕过策略开启此开关。
 

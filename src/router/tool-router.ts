@@ -1,6 +1,6 @@
 import type { CallToolResult } from "@modelcontextprotocol/server";
 import type { AuditWriter } from "../audit/audit-log.js";
-import type { Identity } from "../auth/identity.js";
+import { hasScopes, type Identity } from "../auth/identity.js";
 import { GatewayError, normalizeError, toolError } from "../errors.js";
 import type { PolicyEngine } from "../policy/policy-engine.js";
 import type { McpProxy } from "../proxy/mcp-proxy.js";
@@ -43,7 +43,10 @@ export class ToolRouter {
         );
       signal.throwIfAborted();
       await this.audit.write({ ...context(), phase: "start", status: "started" });
-      const result = await this.proxy.call(tool, args, signal);
+      const result = await this.proxy.call(tool, args, signal, {
+        id: identity.id,
+        moderate: hasScopes(identity, ["blog:moderate"]),
+      });
       await this.audit.write({
         ...context(),
         phase: "finish",
